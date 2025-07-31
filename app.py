@@ -60,8 +60,8 @@ with col2:
         text = extract_text_from_pdf(uploaded_file)
 
         # Show debug info (optional)
-        with st.expander("DEBUG: Extracted PDF Text"):
-            st.write(text)
+        #with st.expander("DEBUG: Extracted PDF Text"):
+        #   st.write(text)
 
         # Enhanced prompt with explicit "Not specified" requirement
         prompt = f"""

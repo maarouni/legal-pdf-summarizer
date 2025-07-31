@@ -15,16 +15,13 @@ client = OpenAI(api_key=api_key)
 st.title("AI-Powered Legal PDF Summarizer")
 st.markdown("""
 Welcome! This tool uses AI to summarize legal PDF documents into clear sections
-such as Parties, Effective Date, Obligations, Risk Flags, and more.
+such as Parties, Dates, Obligations, Jurisdiction, and Risk Flags.
 
 **How to use:**
-1. Upload a PDF file
+1. Upload a PDF file (NDA, contract, policy, etc.)
 2. Wait for the AI to process it
-3. Review the summary and download it if needed
+3. Review the structured summary and download it if needed
 """)
-
-# Upload
-uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 
 def extract_text_from_pdf(file):
     text = ""
@@ -33,40 +30,75 @@ def extract_text_from_pdf(file):
         text += page.get_text()
     return text
 
-if uploaded_file:
-    st.info("Extracting and summarizing...")
-    text = extract_text_from_pdf(uploaded_file)
+# Layout: two columns
+col1, col2 = st.columns([1, 2])
 
-    prompt = f"""
-    Summarize the following legal document under these sections:
-    Parties, Effective Date, Term, Confidential Info,
-    Obligations, Jurisdiction, Risk Flags.
+with col1:
+    uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 
-    Document:
-    {text[:10000]}
-    """
+with col2:
+    if uploaded_file:
+        st.info("Extracting and summarizing...")
+        text = extract_text_from_pdf(uploaded_file)
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+        # Enhanced prompt with explicit "Not specified" requirement
+        prompt = f"""
+        Summarize the following legal document with detailed sections.
+        For any section where the information is missing or not clearly stated,
+        explicitly write: "Not specified".
 
-    # Show the summary
-    st.subheader("Summary")
-    summary_text = response.choices[0].message.content
-    st.write(summary_text)
+        Sections to include:
 
-    # Provide a download button
-    doc = Document()
-    doc.add_heading("Legal Document Summary", level=1)
-    doc.add_paragraph(summary_text)
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
+        1. Parties:
+            - All entities and individuals involved.
+        2. Effective Date:
+            - Start date of the agreement
+            - End date/expiry (if mentioned)
+            - Renewal terms (if applicable)
+        3. Term:
+            - Duration of the agreement.
+        4. Confidential Information:
+            - Definitions
+            - Restrictions
+        5. Obligations:
+            - Key duties of each party
+            - Payment terms, deliverables, deadlines
+        6. Jurisdiction:
+            - Governing law
+            - Venue/courts
+        7. Risk Flags:
+            - Liabilities
+            - Termination conditions
+            - Indemnities
+            - Any unusual or one-sided clauses
 
-    st.download_button(
-        label="Download Summary as Word (.docx)",
-        data=buffer,
-        file_name="summary.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+        Provide the output as structured bullet points with sub-bullets.
+
+        Document:
+        {text[:10000]}
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        # Show the summary
+        st.subheader("Summary")
+        summary_text = response.choices[0].message.content
+        st.write(summary_text)
+
+        # Provide a download button
+        doc = Document()
+        doc.add_heading("Legal Document Summary", level=1)
+        doc.add_paragraph(summary_text)
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        buffer.seek(0)
+
+        st.download_button(
+            label="Download Summary as Word (.docx)",
+            data=buffer,
+            file_name="summary.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )

@@ -9,6 +9,11 @@ from docx import Document
 # Load environment variables
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
+# Simple password gate
+app_password = os.getenv("STREAMLIT_PASSWORD")
+entered_password = st.text_input("Enter access password", type="password")
+if entered_password != app_password:
+    st.stop()
 client = OpenAI(api_key=api_key)
 
 # Title and instructions

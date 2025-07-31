@@ -26,8 +26,19 @@ such as Parties, Dates, Obligations, Jurisdiction, and Risk Flags.
 def extract_text_from_pdf(file):
     text = ""
     pdf = fitz.open(stream=file.read(), filetype="pdf")
+    
+    # Extract normal page text
     for page in pdf:
         text += page.get_text()
+
+    # Extract form field values if any (for non-flattened PDFs)
+    if pdf.is_form_pdf:
+        text += "\n\nForm Fields:\n"
+        for page in pdf:
+            for widget in page.widgets():
+                if widget.field_value:
+                    text += f"{widget.field_name}: {widget.field_value}\n"
+
     return text
 
 # Layout: two columns
@@ -74,8 +85,8 @@ with col2:
 
         Provide the output as structured bullet points with sub-bullets.
 
-        Document:
-        {text[:10000]}
+       Document text and any extracted Form Fields (if present):
+       {text[:10000]}
         """
 
         response = client.chat.completions.create(

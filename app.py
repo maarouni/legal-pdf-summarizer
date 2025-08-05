@@ -6,31 +6,35 @@ from docx import Document
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Load env secrets
+# Load env vars
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
 
-# Secret password
+# Password gate
 app_password = os.getenv("STREAMLIT_PASSWORD")
 st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(app_password))
-
 entered_password = st.text_input("🔒 Enter Access Password:", type="password")
 if entered_password != app_password:
     st.warning("Please enter the correct password.")
     st.stop()
 
-# Title and Mode
+# Title + mode selection
 st.title("Legal PDF Summarizer")
 mode = st.radio("What would you like to do?", [
     "🟢 🔍 Summarize a Single Document",
     "🟢 📊 Summarize and Compare Multiple Documents"
 ])
 
-# Start Button
+# Persistent upload (before button)
+if mode.startswith("🟢 🔍"):
+    uploaded_file = st.file_uploader("Upload a PDF", type="pdf", key="single")
+else:
+    uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
+
+# Start trigger
 if st.button("🚀 Start"):
     if mode.startswith("🟢 🔍"):
-        uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
         if uploaded_file:
             st.info("Processing single document...")
             pdf_text = extract_text_from_pdf(uploaded_file)
@@ -41,7 +45,6 @@ if st.button("🚀 Start"):
         else:
             st.warning("Please upload a PDF file.")
     else:
-        uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True)
         if uploaded_files and 2 <= len(uploaded_files) <= 5:
             st.info("Processing multiple documents...")
             summaries = []
@@ -52,12 +55,11 @@ if st.button("🚀 Start"):
             for name, summary in summaries:
                 st.subheader(f"📄 {name}")
                 st.write(summary)
-            # Optionally add comparison logic
+            # Optionally add download button for merged .docx
         else:
-            st.warning("Please upload between 2 and 5 PDFs.")
+            st.warning("Please upload between 2 and 5 PDF files.")
 
 # --- Helper Functions ---
-
 def extract_text_from_pdf(file):
     text = ""
     pdf = fitz.open(stream=file.read(), filetype="pdf")

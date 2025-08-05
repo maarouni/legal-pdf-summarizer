@@ -6,27 +6,27 @@ from docx import Document
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Load env vars
+# Load secrets
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY", st.secrets.get("OPENAI_API_KEY"))
+app_password = os.getenv("STREAMLIT_PASSWORD", st.secrets.get("STREAMLIT_PASSWORD"))
 client = OpenAI(api_key=api_key)
 
-# Password gate
-app_password = os.getenv("STREAMLIT_PASSWORD")
+# --- Password Gate ---
 st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(app_password))
 entered_password = st.text_input("🔒 Enter Access Password:", type="password")
 if entered_password != app_password:
     st.warning("Please enter the correct password.")
     st.stop()
 
-# Title + mode selection
+# --- UI Title and Mode Selection ---
 st.title("Legal PDF Summarizer")
 mode = st.radio("What would you like to do?", [
     "🟢 🔍 Summarize a Single Document",
     "🟢 📊 Summarize and Compare Multiple Documents"
 ])
 
-# --- Uploads (persistently outside button block) ---
+# --- Uploaders ---
 uploaded_file = None
 uploaded_files = None
 
@@ -35,7 +35,7 @@ if mode.startswith("🟢 🔍"):
 else:
     uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
 
-# --- Trigger ---
+# --- Process on Start ---
 if st.button("🚀 Start"):
     if mode.startswith("🟢 🔍"):
         if uploaded_file:
@@ -58,10 +58,11 @@ if st.button("🚀 Start"):
             for name, summary in summaries:
                 st.subheader(f"📄 {name}")
                 st.write(summary)
+            # Optional: Add merged docx download here
         else:
             st.warning("Please upload between 2 and 5 PDF files.")
 
-# --- Helpers ---
+# --- Helper Functions ---
 def extract_text_from_pdf(file):
     text = ""
     pdf = fitz.open(stream=file.read(), filetype="pdf")

@@ -6,35 +6,30 @@ from docx import Document
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Load env vars
+# --- Load environment variables ---
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
+app_password = os.getenv("STREAMLIT_PASSWORD")
 client = OpenAI(api_key=api_key)
 
-# Password gate
-app_password = os.getenv("STREAMLIT_PASSWORD")
+# --- Password Gate ---
 st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(app_password))
 entered_password = st.text_input("🔒 Enter Access Password:", type="password")
 if entered_password != app_password:
     st.warning("Please enter the correct password.")
     st.stop()
 
-# Title + mode selection
+# --- Title + Mode Toggle ---
 st.title("Legal PDF Summarizer")
 mode = st.radio("What would you like to do?", [
     "🟢 🔍 Summarize a Single Document",
     "🟢 📊 Summarize and Compare Multiple Documents"
 ])
 
-# Persistent upload (before button)
+# --- Upload & Button Logic ---
 if mode.startswith("🟢 🔍"):
     uploaded_file = st.file_uploader("Upload a PDF", type="pdf", key="single")
-else:
-    uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
-
-# Start trigger
-if st.button("🚀 Start"):
-    if mode.startswith("🟢 🔍"):
+    if st.button("🚀 Start"):
         if uploaded_file:
             st.info("Processing single document...")
             pdf_text = extract_text_from_pdf(uploaded_file)
@@ -44,7 +39,9 @@ if st.button("🚀 Start"):
             download_summary(summary)
         else:
             st.warning("Please upload a PDF file.")
-    else:
+else:
+    uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
+    if st.button("🚀 Start"):
         if uploaded_files and 2 <= len(uploaded_files) <= 5:
             st.info("Processing multiple documents...")
             summaries = []
@@ -55,7 +52,7 @@ if st.button("🚀 Start"):
             for name, summary in summaries:
                 st.subheader(f"📄 {name}")
                 st.write(summary)
-            # Optionally add download button for merged .docx
+            # (Optional) Add multi-summary .docx generation here
         else:
             st.warning("Please upload between 2 and 5 PDF files.")
 

@@ -1,65 +1,80 @@
+import os
 import streamlit as st
 import fitz  # PyMuPDF
-import os
-import pandas as pd
 import io
 from docx import Document
-from openai import OpenAI
 from dotenv import load_dotenv
+from openai import OpenAI
 
-# Load .env (for local dev)
+# Load env secrets
 load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
 
-# ✅ Load secrets (Streamlit Cloud or local fallback)
-openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-streamlit_pwd = os.getenv("STREAMLIT_PASSWORD") or st.secrets.get("STREAMLIT_PASSWORD")
+# Secret password
+app_password = os.getenv("STREAMLIT_PASSWORD")
+st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(app_password))
 
-# 🔐 Password Gate
-st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(streamlit_pwd))
 entered_password = st.text_input("🔒 Enter Access Password:", type="password")
-if entered_password != streamlit_pwd:
-    st.warning("Please enter the correct password to access the app.")
+if entered_password != app_password:
+    st.warning("Please enter the correct password.")
     st.stop()
 
-# Set OpenAI client
-client = OpenAI(api_key=openai_key)
+# Title and Mode
+st.title("Legal PDF Summarizer")
+mode = st.radio("What would you like to do?", [
+    "🟢 🔍 Summarize a Single Document",
+    "🟢 📊 Summarize and Compare Multiple Documents"
+])
 
-# UI Layout
-st.markdown(
-    """
-    <div style='text-align: center;'>
-        <h1 style='margin-bottom: 0.5em;'>Legal PDF Summarizer</h1>
-        <h3 style='margin-top: 0.2em; color: #333;'>What would you like to do?</h3>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# Start Button
+if st.button("🚀 Start"):
+    if mode.startswith("🟢 🔍"):
+        uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
+        if uploaded_file:
+            st.info("Processing single document...")
+            pdf_text = extract_text_from_pdf(uploaded_file)
+            summary = summarize_text(pdf_text)
+            st.subheader("Summary")
+            st.write(summary)
+            download_summary(summary)
+        else:
+            st.warning("Please upload a PDF file.")
+    else:
+        uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True)
+        if uploaded_files and 2 <= len(uploaded_files) <= 5:
+            st.info("Processing multiple documents...")
+            summaries = []
+            for file in uploaded_files:
+                pdf_text = extract_text_from_pdf(file)
+                summary = summarize_text(pdf_text)
+                summaries.append((file.name, summary))
+            for name, summary in summaries:
+                st.subheader(f"📄 {name}")
+                st.write(summary)
+            # Optionally add comparison logic
+        else:
+            st.warning("Please upload between 2 and 5 PDFs.")
 
-mode = st.radio(
-    "",
-    ["🟢 🔍 Summarize a Single Document", "🟢 📊 Summarize and Compare Multiple Documents"]
-)
+# --- Helper Functions ---
 
-start_clicked = st.button("🚀 Start")
-
-# --- Functions ---
-def extract_text(file):
+def extract_text_from_pdf(file):
     text = ""
     pdf = fitz.open(stream=file.read(), filetype="pdf")
     for page in pdf:
         text += page.get_text()
     return text
 
-def summarize_text(text, model="gpt-4o-mini"):
+def summarize_text(text):
     prompt = f"""
     Summarize the following legal document with detailed sections.
-    If any section is missing, write "Not specified".
+    If any section is missing, say "Not specified".
 
-    Sections:
+    Sections to include:
     1. Parties
     2. Effective Date
     3. Term
-    4. Confidential Info
+    4. Confidential Information
     5. Obligations
     6. Jurisdiction
     7. Risk Flags
@@ -68,54 +83,21 @@ def summarize_text(text, model="gpt-4o-mini"):
     {text[:10000]}
     """
     response = client.chat.completions.create(
-        model=model,
+        model="gpt-4o",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
 
-def show_download_button(content, filename="summary.docx"):
+def download_summary(summary_text):
     doc = Document()
     doc.add_heading("Legal Document Summary", level=1)
-    doc.add_paragraph(content)
+    doc.add_paragraph(summary_text)
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     st.download_button(
-        label="Download Summary as Word (.docx)",
+        label="📥 Download Summary (.docx)",
         data=buffer,
-        file_name=filename,
+        file_name="summary.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
-
-# --- Main Logic ---
-if start_clicked:
-    if "Single" in mode:
-        st.subheader("Upload a PDF")
-        uploaded_file = st.file_uploader("Choose a legal PDF", type="pdf")
-        if uploaded_file:
-            with st.spinner("Summarizing document..."):
-                text = extract_text(uploaded_file)
-                summary = summarize_text(text)
-                st.subheader("📄 Summary")
-                st.write(summary)
-                show_download_button(summary)
-
-    else:
-        st.subheader("Upload 2–5 PDFs")
-        uploaded_files = st.file_uploader("Choose multiple PDFs", type="pdf", accept_multiple_files=True)
-        if uploaded_files:
-            if not (2 <= len(uploaded_files) <= 5):
-                st.warning("Please upload between 2 and 5 PDF files.")
-            else:
-                summaries = []
-                with st.spinner("Summarizing all documents..."):
-                    for file in uploaded_files:
-                        text = extract_text(file)
-                        summary = summarize_text(text)
-                        summaries.append((file.name, summary))
-
-                st.subheader("📊 Comparison Table")
-                for filename, summary in summaries:
-                    with st.expander(f"📄 {filename}"):
-                        st.write(summary)
-                # Optional export logic can go here

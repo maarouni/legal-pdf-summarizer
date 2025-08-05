@@ -6,30 +6,38 @@ from docx import Document
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# --- Load environment variables ---
+# Load env vars
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
-app_password = os.getenv("STREAMLIT_PASSWORD")
 client = OpenAI(api_key=api_key)
 
-# --- Password Gate ---
+# Password gate
+app_password = os.getenv("STREAMLIT_PASSWORD")
 st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(app_password))
 entered_password = st.text_input("🔒 Enter Access Password:", type="password")
 if entered_password != app_password:
     st.warning("Please enter the correct password.")
     st.stop()
 
-# --- Title + Mode Toggle ---
+# Title + mode selection
 st.title("Legal PDF Summarizer")
 mode = st.radio("What would you like to do?", [
     "🟢 🔍 Summarize a Single Document",
     "🟢 📊 Summarize and Compare Multiple Documents"
 ])
 
-# --- Upload & Button Logic ---
+# --- Uploads (persistently outside button block) ---
+uploaded_file = None
+uploaded_files = None
+
 if mode.startswith("🟢 🔍"):
     uploaded_file = st.file_uploader("Upload a PDF", type="pdf", key="single")
-    if st.button("🚀 Start"):
+else:
+    uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
+
+# --- Trigger ---
+if st.button("🚀 Start"):
+    if mode.startswith("🟢 🔍"):
         if uploaded_file:
             st.info("Processing single document...")
             pdf_text = extract_text_from_pdf(uploaded_file)
@@ -39,9 +47,7 @@ if mode.startswith("🟢 🔍"):
             download_summary(summary)
         else:
             st.warning("Please upload a PDF file.")
-else:
-    uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
-    if st.button("🚀 Start"):
+    else:
         if uploaded_files and 2 <= len(uploaded_files) <= 5:
             st.info("Processing multiple documents...")
             summaries = []
@@ -52,11 +58,10 @@ else:
             for name, summary in summaries:
                 st.subheader(f"📄 {name}")
                 st.write(summary)
-            # (Optional) Add multi-summary .docx generation here
         else:
             st.warning("Please upload between 2 and 5 PDF files.")
 
-# --- Helper Functions ---
+# --- Helpers ---
 def extract_text_from_pdf(file):
     text = ""
     pdf = fitz.open(stream=file.read(), filetype="pdf")

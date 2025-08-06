@@ -1,19 +1,18 @@
 import os
+import io
 import streamlit as st
 import fitz  # PyMuPDF
-import io
 from docx import Document
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Load secrets
+# Load environment variables
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY", st.secrets.get("OPENAI_API_KEY"))
-app_password = os.getenv("STREAMLIT_PASSWORD", st.secrets.get("STREAMLIT_PASSWORD"))
+api_key = os.getenv("OPENAI_API_KEY")
+app_password = os.getenv("STREAMLIT_PASSWORD")
 client = OpenAI(api_key=api_key)
 
-# --- Password Gate ---
-st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(app_password))
+# --- Password gate ---
 entered_password = st.text_input("🔒 Enter Access Password:", type="password")
 if entered_password != app_password:
     st.warning("Please enter the correct password.")
@@ -21,46 +20,55 @@ if entered_password != app_password:
 
 # --- UI Title and Mode Selection ---
 st.title("Legal PDF Summarizer")
-mode = st.radio("What would you like to do?", [
-    "🟢 🔍 Summarize a Single Document",
-    "🟢 📊 Summarize and Compare Multiple Documents"
-])
+mode = st.radio("Select mode:", ["🟢 🔍 Summarize a Single Document", "🟢 📊 Compare Multiple Documents"])
 
-# --- Uploaders ---
-uploaded_file = None
-uploaded_files = None
-
+# --- Upload Widgets ---
 if mode.startswith("🟢 🔍"):
-    uploaded_file = st.file_uploader("Upload a PDF", type="pdf", key="single")
+    uploaded_file = st.file_uploader("📄 Upload a PDF", type="pdf", key="single")
 else:
-    uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
+    uploaded_files = st.file_uploader("📄 Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
 
-# --- Process on Start ---
+# --- Debugging State ---
+st.write("📌 Mode:", mode)
+st.write("📌 File(s) uploaded:", {
+    "single": uploaded_file.name if mode.startswith("🟢 🔍") and uploaded_file else None,
+    "multi": [f.name for f in uploaded_files] if mode.startswith("🟢 📊") and uploaded_files else None
+})
+
+# --- Start Trigger ---
 if st.button("🚀 Start"):
     if mode.startswith("🟢 🔍"):
         if uploaded_file:
             st.info("Processing single document...")
-            pdf_text = extract_text_from_pdf(uploaded_file)
-            summary = summarize_text(pdf_text)
-            st.subheader("Summary")
-            st.write(summary)
-            download_summary(summary)
+            try:
+                pdf_text = extract_text_from_pdf(uploaded_file)
+                summary = summarize_text(pdf_text)
+                st.subheader("Summary")
+                st.write(summary)
+                download_summary(summary)
+            except Exception as e:
+                st.error(f"❌ Error processing file: {e}")
         else:
-            st.warning("Please upload a PDF file.")
-    else:
+            st.warning("⚠️ Please upload a PDF file first.")
+
+    else:  # Multi-file mode
         if uploaded_files and 2 <= len(uploaded_files) <= 5:
             st.info("Processing multiple documents...")
-            summaries = []
-            for file in uploaded_files:
-                pdf_text = extract_text_from_pdf(file)
-                summary = summarize_text(pdf_text)
-                summaries.append((file.name, summary))
-            for name, summary in summaries:
-                st.subheader(f"📄 {name}")
-                st.write(summary)
-            # Optional: Add merged docx download here
+            try:
+                summaries = []
+                for file in uploaded_files:
+                    pdf_text = extract_text_from_pdf(file)
+                    summary = summarize_text(pdf_text)
+                    summaries.append((file.name, summary))
+
+                for name, summary in summaries:
+                    st.subheader(f"📄 {name}")
+                    st.write(summary)
+                # Optional: Add combined download here
+            except Exception as e:
+                st.error(f"❌ Error processing files: {e}")
         else:
-            st.warning("Please upload between 2 and 5 PDF files.")
+            st.warning("⚠️ Please upload between 2 and 5 PDFs.")
 
 # --- Helper Functions ---
 def extract_text_from_pdf(file):
@@ -91,7 +99,7 @@ def summarize_text(text):
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}]
     )
-    return response.choices[0].message.content
+    return response.choices[0].message.content.strip()
 
 def download_summary(summary_text):
     doc = Document()

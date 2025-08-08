@@ -1,106 +1,135 @@
 import os
-import io
+import time
 import streamlit as st
-import fitz  # PyMuPDF
-from docx import Document
-from dotenv import load_dotenv
+import PyPDF2
 from openai import OpenAI
+import pandas as pd
+import re
 
-# --- Load environment variables ---
-load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-app_password = os.getenv("STREAMLIT_PASSWORD")
-client = OpenAI(api_key=api_key)
+# Load secrets
+PASSWORD_SECRET = st.secrets["STREAMLIT_PASSWORD"]
+OPENAI_KEY = st.secrets["OPENAI_API_KEY"]
 
-# --- Helper Functions ---
-def extract_text_from_pdf(file):
-    text = ""
-    pdf = fitz.open(stream=file.read(), filetype="pdf")
-    for page in pdf:
-        text += page.get_text()
-    return text
+# Set up page
+st.set_page_config(page_title="Legal PDF Summarizer")
+st.title("📄 Legal PDF Summarizer")
 
-def summarize_text(text):
-    prompt = f"""
-    Summarize the following legal document with detailed sections.
-    If any section is missing, say "Not specified".
-
-    Sections to include:
-    1. Parties
-    2. Effective Date
-    3. Term
-    4. Confidential Information
-    5. Obligations
-    6. Jurisdiction
-    7. Risk Flags
-
-    Document:
-    {text[:10000]}
-    """
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content.strip()
-
-def download_summary(summary_text):
-    doc = Document()
-    doc.add_heading("Legal Document Summary", level=1)
-    doc.add_paragraph(summary_text)
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    st.download_button(
-        label="📥 Download Summary (.docx)",
-        data=buffer,
-        file_name="summary.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-
-# --- Password Protection ---
-st.write("🔐 STREAMLIT_PASSWORD loaded:", bool(app_password))
-entered_password = st.text_input("🔒 Enter Access Password:", type="password")
-if entered_password != app_password:
-    st.warning("Please enter the correct password.")
+# Password gate
+password = st.text_input("Enter app password:", type="password")
+if not password:
+    st.stop()
+if password != PASSWORD_SECRET:
+    st.error("❌ Incorrect password")
     st.stop()
 
-# --- UI Title and Mode Selection ---
-st.title("Legal PDF Summarizer")
-mode = st.radio("What would you like to do?", [
-    "🟢 🔍 Summarize a Single Document",
-    "🟢 📊 Summarize and Compare Multiple Documents"
-])
+# Mode selection menu
+mode = st.radio(
+    "What would you like to do?",
+    ["🔍 Summarize a Single Document", "📊 Summarize and Compare Multiple Documents"]
+)
 
-# --- Upload & Trigger Logic ---
-if mode.startswith("🟢 🔍"):
-    uploaded_file = st.file_uploader("Upload a PDF", type="pdf", key="single")
+# PDF text extraction helper
+def extract_pdf_text(file):
+    reader = PyPDF2.PdfReader(file)
+    full_text = ""
+    for page in reader.pages:
+        full_text += page.extract_text() or ""
+    return full_text.strip()
 
-    if st.button("🚀 Start"):
-        if uploaded_file:
-            st.info("Processing single document...")
-            pdf_text = extract_text_from_pdf(uploaded_file)
-            summary = summarize_text(pdf_text)
-            st.subheader("Summary")
-            st.write(summary)
-            download_summary(summary)
+# === CHUNKING DISABLED: Summarization function without chunking ===
+def summarize_text(text):
+    client = OpenAI(api_key=OPENAI_KEY)
+    model = "gpt-4o-mini"
+
+    try:
+        with st.spinner("🧠 Summarizing entire document..."):
+            final = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a precise legal contract summarizer."},
+                    {"role": "user", "content": (
+                        "For the given text, produce a structured summary with these sections:\n"
+                        "1. Parties\n2. Effective Date\n3. Term\n4. Confidential Information\n"
+                        "5. Obligations\n6. Jurisdiction\n7. Risk Flags\n\n"
+                        f"Text:\n{text}"
+                    )}
+                ],
+                temperature=0.2,
+                max_tokens=1500
+            )
+        return final.choices[0].message.content.strip()
+    except Exception as e:
+        return f"❌ Summarization failed: {e}"
+
+# === Main Logic ===
+if mode == "🔍 Summarize a Single Document":
+    uploaded_file = st.file_uploader("Upload a legal PDF", type=["pdf"])
+    if uploaded_file:
+        pdf_text = extract_pdf_text(uploaded_file)
+        if not pdf_text:
+            st.warning("⚠️ The uploaded PDF appears to be empty.")
         else:
-            st.warning("Please upload a PDF file.")
+            try:
+                with st.spinner("🧠 Summarizing document..."):
+                    summary_output = summarize_text(pdf_text)
+                st.subheader("📄 Summary Output")
+                st.write(summary_output)
+            except Exception as e:
+                st.error(f"❌ Error during summarization:\n\n{e}")
 
-else:
-    uploaded_files = st.file_uploader("Upload 2–5 PDFs", type="pdf", accept_multiple_files=True, key="multi")
+elif mode == "📊 Summarize and Compare Multiple Documents":
+    uploaded_files = st.file_uploader("Upload multiple legal PDFs", type=["pdf"], accept_multiple_files=True)
 
-    if st.button("🚀 Start"):
-        if uploaded_files and 2 <= len(uploaded_files) <= 5:
-            st.info("Processing multiple documents...")
-            summaries = []
-            for file in uploaded_files:
-                pdf_text = extract_text_from_pdf(file)
-                summary = summarize_text(pdf_text)
-                summaries.append((file.name, summary))
+    if uploaded_files:
+        summaries = {}
+        for file in uploaded_files:
+            text = extract_pdf_text(file)
+            if text:
+                try:
+                    with st.spinner(f"Summarizing {file.name}..."):
+                        summary = summarize_text(text)
+                        summaries[file.name] = summary
+                except Exception as e:
+                    summaries[file.name] = f"❌ Error: {e}"
+            else:
+                summaries[file.name] = "⚠️ Empty or unreadable file."
 
-            for name, summary in summaries:
-                st.subheader(f"📄 {name}")
-                st.write(summary)
-            # Optionally: add merged .docx export here
+        # Display comparison table
+        st.subheader("📊 Comparison Table")
+
+        sections = [
+            "Parties",
+            "Effective Date",
+            "Term",
+            "Confidential Information",
+            "Obligations",
+            "Jurisdiction",
+            "Risk Flags"
+        ]
+
+        def extract_section(summary_text, section_name):
+            pattern = rf"{section_name}.*?:([\s\S]*?)(?=\n[A-Z][a-z]+:|\n[A-Z][A-Z ]+:|$)"
+            match = re.search(pattern, summary_text, re.IGNORECASE)
+            return match.group(1).strip() if match else "Not specified"
+
+        comparison_data = {section: [] for section in sections}
+        file_labels = []
+
+        for filename, summary in summaries.items():
+            file_labels.append(filename)
+            for section in sections:
+                content = extract_section(summary, section)
+                comparison_data[section].append(content)
+
+        df = pd.DataFrame(comparison_data, index=file_labels)
+
+        if not df.empty:
+            st.dataframe(df.transpose())
         else:
-            st.warning("Please upload between 2 and 5 PDF files.")
+            st.warning("⚠️ Could not extract structured sections from one or more summaries.")
+
+        # Always show raw summaries below as fallback
+        st.subheader("🗂 Raw Summary Comparison")
+        for filename, summary in summaries.items():
+            with st.expander(f"📄 {filename}"):
+                st.markdown(summary)
